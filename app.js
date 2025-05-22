@@ -1,35 +1,37 @@
-require('dotenv').config();
-import express, { json } from 'express';
-import { connect, Schema, model } from 'mongoose';
-import { verify, sign } from 'jsonwebtoken';
-import { hash, compare } from 'bcryptjs';
+import dotenv from 'dotenv';
+import express from 'express';
+import mongoose from 'mongoose';
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
+dotenv.config();
+
 const app = express();
 
-app.use(json());
+app.use(express.json());
 app.use((req, res, next) => {
   console.log(`[${req.method}] ${req.url}`);
   next();
 });
 
 // Kết nối MongoDB
-connect(process.env.MONGO_URI, {
+mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 }).then(() => console.log('Connected to MongoDB'))
   .catch(err => console.error('MongoDB connection error:', err));
 
 // Định nghĩa schema
-const userSchema = new Schema({
+const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   password: { type: String, required: true },
 });
-const todoSchema = new Schema({
+const todoSchema = new mongoose.Schema({
   task: { type: String, required: true },
   completed: { type: Boolean, default: false },
-  userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
 });
-const User = model('User', userSchema);
-const Todo = model('Todo', todoSchema);
+const User = mongoose.model('User', userSchema);
+const Todo = mongoose.model('Todo', todoSchema);
 
 // Middleware xác thực JWT
 const authMiddleware = (req, res, next) => {
@@ -39,7 +41,7 @@ const authMiddleware = (req, res, next) => {
   }
   const token = authHeader.split(' ')[1];
   try {
-    const decoded = verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.userId = decoded.userId;
     next();
   } catch (error) {
@@ -58,7 +60,7 @@ app.post('/register', async (req, res) => {
     if (existingUser) {
       return res.status(400).json({ error: 'Username already exists' });
     }
-    const hashedPassword = await hash(password, 10);
+    const hashedPassword = await bcrypt.hash(password, 10);
     const user = new User({ username, password: hashedPassword });
     await user.save();
     res.status(201).json({ message: 'User registered' });
@@ -75,10 +77,10 @@ app.post('/login', async (req, res) => {
   }
   try {
     const user = await User.findOne({ username });
-    if (!user || !(await compare(password, user.password))) {
+    if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
-    const token = sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
     res.status(200).json({ token });
   } catch (error) {
     res.status(500).json({ error: 'Database error' });
